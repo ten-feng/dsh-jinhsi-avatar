@@ -1,11 +1,11 @@
 /**
- * dsh-avatar host half.
+ * dsh-jinhsi-avatar host half.
  *
- * 只做一件事：把「充值余额」喂给浏览器半区。
- * 余额来自本机鲸鱼余额挂件记录的账本（~/.dsh/.dshw-usage.json 的 lastBalance，单位 CNY），
- * 也就是设置里那份余额口径，避免再去猜第三方接口。
+ * 两件事：
+ *   1. 把「充值余额 + 今日花费」喂给浏览器半区（读本机鲸鱼余额挂件的账本）
+ *   2. 汇总会话忙碌状态：任意会话在跑回合时，形象体应回到窝点不动
  *
- * @module dsh-avatar
+ * @module dsh-jinhsi-avatar
  */
 
 import { readFile } from 'node:fs/promises'
@@ -14,9 +14,9 @@ import path from 'node:path'
 
 export const name = 'avatar'
 
-export const inject = ['webServer']
+export const inject = ['webServer', 'sessions']
 
-const ROUTE = '/dsh-avatar/balance'
+const ROUTE = '/dsh-avatar/state'
 
 function dshHome() {
   return process.env.DSH_HOME || path.join(os.homedir(), '.dsh')
@@ -30,7 +30,7 @@ async function readJson(file) {
   }
 }
 
-async function readBalance() {
+async function readUsage() {
   const home = dshHome()
   const candidates = [
     path.join(home, '.dshw-usage.json'),
@@ -39,25 +39,51 @@ async function readBalance() {
   for (const file of candidates) {
     const data = await readJson(file)
     if (!data) continue
-    const value = Number(data.lastBalance)
-    if (Number.isFinite(value) && value >= 0) {
-      return { cny: value, source: path.basename(file) }
+    const balance = Number(data.lastBalance)
+    const today = Number(data.todayUsage)
+    if (Number.isFinite(balance) || Number.isFinite(today)) {
+      return {
+        cny: Number.isFinite(balance) ? balance : null,
+        todayCny: Number.isFinite(today) ? today : null,
+        source: path.basename(file),
+      }
     }
   }
   return null
 }
 
 export function apply(ctx) {
+  // 活跃回合计数：turn/start 记一笔，turn/end 清掉
+  const running = new Set()
+
+  ctx.on('session/event', (session, event) => {
+    const id = String(session?.id || '')
+    if (!id || !event) return
+    if (event.type === 'turn/start') running.add(id)
+    else if (event.type === 'turn/end') running.delete(id)
+  })
+
+  ctx.on('session/disposed', (session) => {
+    const id = String(session?.id || '')
+    if (id) running.delete(id)
+  })
+
   const route = {
     kind: 'exact',
     path: ROUTE,
     handler: async (req, res) => {
-      const balance = await readBalance()
-      const payload = balance
-        ? { ok: true, cny: balance.cny, stars: Math.round(balance.cny * 10), source: balance.source }
-        : { ok: false, error: 'balance unavailable' }
+      const usage = await readUsage()
+      const payload = {
+        ok: true,
+        busy: running.size > 0,
+        running: running.size,
+        cny: usage?.cny ?? null,
+        stars: usage?.cny != null ? Math.round(usage.cny * 10) : null,
+        todayCny: usage?.todayCny ?? null,
+        todayStars: usage?.todayCny != null ? Math.round(usage.todayCny * 10) : null,
+      }
       const body = JSON.stringify(payload)
-      res.writeHead(balance ? 200 : 404, {
+      res.writeHead(200, {
         'content-type': 'application/json; charset=utf-8',
         'cache-control': 'no-store',
         'content-length': Buffer.byteLength(body),
@@ -67,7 +93,8 @@ export function apply(ctx) {
   }
 
   const dispose = ctx.webServer?.register?.(route)
-  ctx?.logger?.debug?.('[dsh-avatar] balance route registered')
+  ctx?.logger?.debug?.('[dsh-jinhsi-avatar] state route registered')
+
   return () => {
     try { dispose?.() } catch { /* ignore */ }
   }
