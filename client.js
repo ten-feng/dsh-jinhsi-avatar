@@ -924,7 +924,9 @@ window.__ModuleLoader__.load({
           )
         } else if (motion.mode === 'walk') {
           const area = roamBounds()
-          motion.y += (area.maxY - motion.y) * Math.min(1, dt * 0.008)
+          // 落地要慢：指数逼近 + 每帧限速，避免从高处切到"走"时突然掉一段
+          const dropStep = (area.maxY - motion.y) * Math.min(1, dt * 0.0016)
+          motion.y += Math.max(-4, Math.min(4, dropStep))
           motion.x += motion.facing * dt * 0.035
           if (motion.x <= area.minX || motion.x >= area.maxX) {
             motion.x = Math.max(area.minX, Math.min(area.maxX, motion.x))
