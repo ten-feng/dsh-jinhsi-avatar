@@ -39,129 +39,40 @@ window.__ModuleLoader__.load({
     ]
 
 
-    // ---------- 账户余额（借鲸鱼挂件的同源接口，失败静默） ----------
+    // ---------- 宿主状态轮询：余额 / 今日花费 / 是否有会话在跑 ----------
     let balanceCny = null
-    let balanceAt = 0
+    let todayCny = null
+    let sessionBusy = false
+    let lastPollAt = 0
 
-    function pickNumber(node, depth = 0) {
-      if (depth > 4 || node === null || node === undefined) return null
-      if (typeof node === 'number' && Number.isFinite(node) && node > 0 && node < 1e7) return node
-      if (typeof node === 'string' && node.trim() && Number.isFinite(Number(node))) {
-        const n = Number(node)
-        return n > 0 && n < 1e7 ? n : null
-      }
-      if (typeof node === 'object') {
-        for (const key of ['remaining', 'total_balance', 'balance', 'total', 'current', 'value', 'lastBalance']) {
-          if (key in node) {
-            const hit = pickNumber(node[key], depth + 1)
-            if (hit !== null) return hit
-          }
-        }
-        for (const k of Object.keys(node)) {
-          const hit = pickNumber(node[k], depth + 1)
-          if (hit !== null) return hit
-        }
-      }
-      return null
-    }
-
-    async function refreshBalance() {
-      if (Date.now() - balanceAt < 120000) return
-      balanceAt = Date.now()
+    async function pollAvatarState(force) {
+      if (!force && Date.now() - lastPollAt < 1800) return
+      lastPollAt = Date.now()
       try {
-        const res = await fetch('/dsh-avatar/balance', { credentials: 'include' })
+        const res = await fetch('/dsh-avatar/state', { credentials: 'include', cache: 'no-store' })
         if (!res.ok) return
         const data = await res.json()
-        const value = pickNumber(data)
-        if (value !== null) balanceCny = value
+        if (typeof data.cny === 'number') balanceCny = data.cny
+        if (typeof data.todayCny === 'number') todayCny = data.todayCny
+        if (typeof data.busy === 'boolean') sessionBusy = data.busy
       } catch (error) {
-        /* 读不到就算了 */
+        /* 宿主没起来或路由不可用时静默 */
       }
+    }
+
+    let pollTimer = 0
+    function ensurePolling() {
+      if (pollTimer) return
+      pollTimer = setInterval(() => { void pollAvatarState() }, 2000)
     }
 
     function balanceLine() {
-      if (balanceCny === null) return null
-      const stars = Math.round(balanceCny * 10)
-      return '余额' + stars + ' 星声'
+      const parts = []
+      if (balanceCny !== null) parts.push('余额' + Math.round(balanceCny * 10) + ' 星声')
+      if (todayCny !== null) parts.push('今日' + Math.round(todayCny * 10) + ' 星声')
+      return parts.length ? parts.join(' · ') : null
     }
 
-
-    // ---------- 点击音效：敲瓷碗（实时合成，无音频文件） ----------
-    // 陶瓷碗的频谱是非谐和的：基音 + 2.76f / 5.40f / 8.93f 三个金属味分音，
-    // 高次分音衰减更快，再配一个极短的噪声"磕碰"头，就成了瓷器那种"叮"。
-    let clickCtx = null
-    // 五只音高不同的“碗”，连点会依次敲过去，停下 1.6 秒后回到第一只
-    const BOWL_NOTES = [1046.5, 1174.7, 1318.5, 1568.0, 1760.0]
-    let bowlStep = -1
-    let bowlLastAt = 0
-    const BOWL_RATIOS = [1, 2.76, 5.4, 8.93]
-    const BOWL_GAINS = [0.82, 0.46, 0.3, 0.16]
-    const BOWL_DECAY = [0.95, 0.6, 0.34, 0.18]
-
-    function playClick() {
-      try {
-        const AC = window.AudioContext || window.webkitAudioContext
-        if (!AC) return
-        if (!clickCtx) clickCtx = new AC()
-        if (clickCtx.state === 'suspended') void clickCtx.resume()
-
-        // 一次点击 = 从五个音里随机敲一下
-        const t0 = clickCtx.currentTime
-        const freq = BOWL_NOTES[Math.floor(Math.random() * BOWL_NOTES.length)]
-        bowlHit(freq, t0, 1)
-      } catch (error) {
-        /* 播放失败静默 */
-      }
-    }
-
-    // 单次敲击：陶瓷碗的非谐和分音 + 磕碰噪声
-    function bowlHit(base, at, weight) {
-      const t = at
-      const master = clickCtx.createGain()
-      master.gain.value = 0.24 * weight
-      const hp = clickCtx.createBiquadFilter()
-      hp.type = 'highpass'
-      hp.frequency.value = 480
-      const lp = clickCtx.createBiquadFilter()
-      lp.type = 'lowpass'
-      lp.frequency.value = 13000
-      master.connect(hp)
-      hp.connect(lp)
-      lp.connect(clickCtx.destination)
-
-      const dur = 0.012
-      const buffer = clickCtx.createBuffer(1, Math.ceil(clickCtx.sampleRate * dur), clickCtx.sampleRate)
-      const data = buffer.getChannelData(0)
-      for (let i = 0; i < data.length; i += 1) {
-        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / data.length, 3)
-      }
-      const noise = clickCtx.createBufferSource()
-      noise.buffer = buffer
-      const nbp = clickCtx.createBiquadFilter()
-      nbp.type = 'bandpass'
-      nbp.frequency.value = 3200
-      nbp.Q.value = 0.9
-      const ng = clickCtx.createGain()
-      ng.gain.value = 0.5
-      noise.connect(nbp)
-      nbp.connect(ng)
-      ng.connect(master)
-      noise.start(t)
-
-      BOWL_RATIOS.forEach((ratio, i) => {
-        const osc = clickCtx.createOscillator()
-        const g = clickCtx.createGain()
-        osc.type = 'sine'
-        osc.frequency.value = base * ratio
-        g.gain.setValueAtTime(0.0001, t)
-        g.gain.exponentialRampToValueAtTime(BOWL_GAINS[i], t + 0.003)
-        g.gain.exponentialRampToValueAtTime(0.0001, t + BOWL_DECAY[i])
-        osc.connect(g)
-        g.connect(master)
-        osc.start(t)
-        osc.stop(t + BOWL_DECAY[i] + 0.05)
-      })
-    }
     /* ================= 状态持久化 ================= */
 
     function loadState() {
@@ -527,6 +438,8 @@ window.__ModuleLoader__.load({
 
       // 开发/预览钩子：{ freeze: true, mode: 'fly', size: 320 }
       const debug = window.__DSH_AVATAR_DEBUG__ || null
+      void pollAvatarState(true)
+      ensurePolling()
 
       // 当前显示宽度 / 目标宽度：目标变化时逐帧插值，播放出"慢慢变大变小"的过程
       let curW = debug && Number.isFinite(debug.size) ? debug.size : SIZES[state.size]
@@ -658,7 +571,8 @@ window.__ModuleLoader__.load({
       function react() {
         playClick()
         touch()
-        void refreshBalance()
+        void pollAvatarState(true)
+      ensurePolling()
         const bal = balanceLine()
         say(bal && Math.random() < 0.5 ? bal : LINES[Math.floor(Math.random() * LINES.length)], 1800)
         const inner = body.querySelector('.dsha-inner')
@@ -810,6 +724,21 @@ window.__ModuleLoader__.load({
 
       function decide(now) {
         if (!motion.roam) return
+        // 只要有会话在跑：回窝、保持默认档、不移动
+        if (sessionBusy) {
+          const spot = home()
+          if (Math.hypot(spot.x - motion.x, spot.y - motion.y) > 8) {
+            motion.target = { x: spot.x, y: spot.y }
+            motion.mode = 'fly'
+            root.dataset.mode = 'fly'
+          } else {
+            motion.mode = 'rest'
+            root.dataset.mode = 'rest'
+          }
+          if (state.size !== 1) { state.size = 1; setSizeTo(SIZES[1], 900) }
+          motion.nextDecision = now + 4000
+          return
+        }
         // 调试：锁定某种行为，方便逐个验证
         if (debug && debug.mode && !debug.freeze) {
           motion.mode = debug.mode
