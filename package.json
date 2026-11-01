@@ -25,7 +25,12 @@
     "jinhsi",
     "image-to-video"
   ],
-  "author": "tenfeng",
+  "author": "ten-feng",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ten-feng/dsh-jinhsi-avatar.git"
+  },
+  "homepage": "https://github.com/ten-feng/dsh-jinhsi-avatar#readme",
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
