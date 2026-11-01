@@ -41,7 +41,10 @@ window.__ModuleLoader__.load({
     // ---------- 宿主状态轮询：余额 / 今日花费 / 是否有会话在跑 ----------
     let balanceCny = null
     let todayCny = null
+    let serverBusy = false
     let sessionBusy = false
+    let uiBusyUntil = 0
+    let rateProbeAt = 0
     let lastPollAt = 0
 
     async function pollAvatarState(force) {
@@ -53,7 +56,7 @@ window.__ModuleLoader__.load({
         const data = await res.json()
         if (typeof data.cny === 'number') balanceCny = data.cny
         if (typeof data.todayCny === 'number') todayCny = data.todayCny
-        if (typeof data.busy === 'boolean') sessionBusy = data.busy
+        if (typeof data.busy === 'boolean') serverBusy = data.busy
       } catch (error) {
       }
     }
@@ -576,8 +579,10 @@ window.__ModuleLoader__.load({
 
       // 逛的范围：尽量待在对话区里，别爬到左侧会话列表上
       function roamBounds() {
-        // 全窗口漫游：不再限制在对话区里
-        return bounds()}
+        // 全窗口漫游：不再限制在对话区里（必须带 minX/minY，pickTarget 要用）
+        const b = bounds()
+        return { minX: 6, minY: 6, maxX: b.maxX, maxY: b.maxY }
+      }
 
       function place(x, y) {
         const b = bounds()
@@ -619,7 +624,10 @@ window.__ModuleLoader__.load({
           let node = null
           let found = null
           while ((node = walker.nextNode())) {
-            if (node.nodeValue && node.nodeValue.indexOf('tok/s') >= 0) found = node.parentElement
+            if (!node.nodeValue || node.nodeValue.indexOf('tok/s') < 0) continue
+            const el = node.parentElement
+            // 别读到自己气泡里的文字，否则「思考速度」会把自己一直判成忙碌
+            if (el && !el.closest('#dsh-avatar-root')) found = el
           }
           return found
         } catch (error) {
@@ -874,6 +882,17 @@ window.__ModuleLoader__.load({
         lastTs = ts
         const now = Date.now()
 
+        // 每 700ms 看一眼界面上的 tok/s：有数字就认为在生成，作为服务端标志的自愈兜底
+        if (now - rateProbeAt > 700) {
+          rateProbeAt = now
+          const probe = readRate()
+          if (probe) {
+            lastRate = probe
+            uiBusyUntil = now + 2500
+          }
+        }
+        sessionBusy = serverBusy || now < uiBusyUntil
+
         lookCurrent.x += (lookTarget.x - lookCurrent.x) * 0.12
         lookCurrent.y += (lookTarget.y - lookCurrent.y) * 0.12
         root.style.setProperty('--dsha-look-x', lookCurrent.x.toFixed(2) + 'px')
@@ -909,13 +928,29 @@ window.__ModuleLoader__.load({
 
         if (motion.mode !== 'held' && motion.roam && now > motion.nextDecision) decide(now)
 
+        // 会话进行中：不论之前在哪、不论是否还在决策冷却，都往窝点飞
+        if (sessionBusy && motion.mode !== 'held') {
+          const spot = home()
+          const homeDist = Math.hypot(spot.x - motion.x, spot.y - motion.y)
+          if (homeDist > 6) {
+            motion.target = { x: spot.x, y: spot.y }
+            motion.mode = 'fly'
+            root.dataset.mode = 'fly'
+            motion.nextDecision = now + 4000
+          } else if (motion.mode !== 'rest') {
+            motion.mode = 'rest'
+            root.dataset.mode = 'rest'
+            motion.target = null
+          }
+          if (state.size !== 1) { state.size = 1; setSizeTo(SIZES[1], 900) }
+        }
         // 会话进行中：气泡常驻显示生成速度
         if (sessionBusy) {
           if (now - rateCheckedAt > 700) {
             rateCheckedAt = now
             const rate = readRate()
             if (rate) lastRate = rate
-            if (lastRate) say('生成速度：' + lastRate + 'tok/s', 2500)
+            if (lastRate) say('思考速度：' + lastRate + 'tok/s', 2500)
           }
         }
 
