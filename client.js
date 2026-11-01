@@ -615,6 +615,7 @@ window.__ModuleLoader__.load({
       let rateNode = null
       let lastRate = null
       let rateCheckedAt = 0
+      let busyShowAt = 0
 
       function findRateNode() {
         try {
@@ -934,14 +935,19 @@ window.__ModuleLoader__.load({
           }
           if (state.size !== 1) { state.size = 1; setSizeTo(SIZES[1], 900) }
         }
-        // 会话进行中：气泡常驻显示生成速度
+        // 会话进行中：每 12 秒露一次气泡，停留 2 秒
         if (sessionBusy) {
           if (now - rateCheckedAt > 700) {
             rateCheckedAt = now
             const rate = readRate()
             if (rate) lastRate = rate
-            if (lastRate) say('思考速度：' + lastRate + 'tok/s', 2500)
           }
+          if (lastRate && now - busyShowAt > 12000) {
+            busyShowAt = now
+            say('思考速度：' + lastRate + 'tok/s', 2000)
+          }
+        } else {
+          busyShowAt = 0
         }
 
         const b = bounds()
