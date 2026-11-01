@@ -1,6 +1,6 @@
 {
   "name": "dsh-jinhsi-avatar",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "DSH 窗口里的今汐形象体：官方立绘经图生视频生成待机/行走/飞行/打盹四组动作，逐帧抠图成透明循环动画；会自己在窗口里走动、尺寸随远近变化、点击回应并报账户余额（星声）。",
   "type": "module",
   "main": "index.js",
