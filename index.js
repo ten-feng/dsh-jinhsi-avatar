@@ -102,6 +102,29 @@ async function readAccountBalance(ctx) {
   return { recharge: sumOf(wallets), bonus: sumOf(bonus), currency }
 }
 
+
+/** 从 assistant/message 的 message 里抽出纯文本 */
+function textOf(message) {
+  if (!message) return ''
+  const parts = []
+  const push = (v) => {
+    if (typeof v === 'string' && v.trim()) parts.push(v.trim())
+  }
+  if (typeof message === 'string') return message
+  if (typeof message.text === 'string') push(message.text)
+  if (Array.isArray(message.content)) {
+    for (const block of message.content) {
+      if (!block) continue
+      if (typeof block === 'string') push(block)
+      else if (block.type === 'text') push(block.text)
+      else if (typeof block.text === 'string') push(block.text)
+    }
+  } else if (typeof message.content === 'string') {
+    push(message.content)
+  }
+  return parts.join('\n').trim()
+}
+
 export function apply(ctx) {
   const running = new Map()
   const STALE_MS = 20 * 60 * 1000
@@ -113,6 +136,9 @@ export function apply(ctx) {
     }
     return running.size > 0
   }
+
+  // ---- 最新一条回复（供桌宠气泡镜像，只读，不改动原会话） ----
+  let lastReply = { text: '', ts: 0, turn: -1 }
 
   // ---- 今日用量账本（本地按回合累计） ----
   let ledger = { date: todayKey(), cny: 0, tokens: 0, byModel: {} }
@@ -169,7 +195,14 @@ export function apply(ctx) {
       void flushLedger(true)
       return
     }
-    if (event.type !== 'assistant/message') return
+    if (event.type !== 'assistant/message') {
+      return
+    }
+    const message = event.data?.message
+    const text = textOf(message)
+    if (text) {
+      lastReply = { text: text.slice(0, 600), ts: Date.now(), turn: Number(event.data?.turn) || -1 }
+    }
     const usage = event.data?.usage
     if (!usage || typeof usage !== 'object') return
     const model = event.data?.message?.source?.model || ''
@@ -227,6 +260,7 @@ export function apply(ctx) {
         tokens: ledger.tokens,
         bonus: balance.bonus,
         source: balance.cny != null ? 'deepseekAccount' : null,
+        reply: lastReply,
         apiError: balance.error,
       }
       const body = JSON.stringify(payload)
