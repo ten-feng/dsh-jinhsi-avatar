@@ -57,15 +57,28 @@ async function readLedger() {
 
 export function apply(ctx) {
 
-  // 任何会话事件都刷新活跃时间：流式输出期间事件很密集，
-  // 停下 12 秒没有事件就当作空闲（不依赖 turn/end 这类可能不存在的边界事件）
-  const QUIET_MS = 12000
-  let lastEventAt = 0
+  // 会话状态：turn/start 记为运行中，turn/end 清除；另加 20 分钟兜底防止漏收
+  const running = new Map()
+  const STALE_MS = 20 * 60 * 1000
+
+  function isBusy() {
+    const now = Date.now()
+    for (const [id, at] of running) {
+      if (now - at > STALE_MS) running.delete(id)
+    }
+    return running.size > 0
+  }
+
   ctx.on('session/event', (session, event) => {
     if (!event) return
     const id = String(session?.id || '')
     if (!id) return
-    lastEventAt = Date.now()
+    if (event.type === 'turn/start') running.set(id, Date.now())
+    else if (event.type === 'turn/end') running.delete(id)
+  })
+  ctx.on('session/disposed', (session) => {
+    const id = String(session?.id || '')
+    if (id) running.delete(id)
   })
 
   let cache = { at: 0, value: null }
@@ -85,8 +98,8 @@ export function apply(ctx) {
       const usage = await readUsage()
       const payload = {
         ok: true,
-        busy: Date.now() - lastEventAt < QUIET_MS,
-        running: Date.now() - lastEventAt < QUIET_MS ? 1 : 0,
+        busy: isBusy(),
+        running: running.size,
         cny: usage.cny,
         stars: usage.cny != null ? Math.round(usage.cny * 10) : null,
         todayCny: usage.todayCny,
