@@ -1,9 +1,10 @@
 /**
  * dsh-jinhsi-avatar host half.
  *
- * 两件事：
- *   1. 把「充值余额 + 今日花费」喂给浏览器半区（读本机鲸鱼余额挂件的账本）
- *   2. 汇总会话忙碌状态：任意会话在跑回合时，形象体应回到窝点不动
+ * 1. 余额 / 今日已用：直接读本机账本 `~/.dsh/.dshw-usage.json`
+ *    （`lastBalance` 与 `todayUsage`，单位 CNY，和设置里的用量信息同源）。
+ *    不走任何网络请求。
+ * 2. 忙碌状态：聚合 turn/start / turn/end，任意会话在跑时前端让形象体回窝。
  *
  * @module dsh-jinhsi-avatar
  */
@@ -17,6 +18,7 @@ export const name = 'avatar'
 export const inject = ['webServer', 'sessions']
 
 const ROUTE = '/dsh-avatar/state'
+const CACHE_MS = 5000
 
 function dshHome() {
   return process.env.DSH_HOME || path.join(os.homedir(), '.dsh')
@@ -30,30 +32,30 @@ async function readJson(file) {
   }
 }
 
-async function readUsage() {
+/** 本地账本：余额 + 今日已用 */
+async function readLedger() {
   const home = dshHome()
-  const candidates = [
+  const files = [
     path.join(home, '.dshw-usage.json'),
     path.join(home, 'profiles', 'web', '.dshw-usage.json'),
   ]
-  for (const file of candidates) {
+  for (const file of files) {
     const data = await readJson(file)
     if (!data) continue
-    const balance = Number(data.lastBalance)
+    const cny = Number(data.lastBalance)
     const today = Number(data.todayUsage)
-    if (Number.isFinite(balance) || Number.isFinite(today)) {
+    if (Number.isFinite(cny) || Number.isFinite(today)) {
       return {
-        cny: Number.isFinite(balance) ? balance : null,
+        cny: Number.isFinite(cny) ? cny : null,
         todayCny: Number.isFinite(today) ? today : null,
         source: path.basename(file),
       }
     }
   }
-  return null
+  return { cny: null, todayCny: null, source: null }
 }
 
 export function apply(ctx) {
-  // 活跃回合计数：turn/start 记一笔，turn/end 清掉
   const running = new Set()
 
   ctx.on('session/event', (session, event) => {
@@ -62,25 +64,35 @@ export function apply(ctx) {
     if (event.type === 'turn/start') running.add(id)
     else if (event.type === 'turn/end') running.delete(id)
   })
-
   ctx.on('session/disposed', (session) => {
     const id = String(session?.id || '')
     if (id) running.delete(id)
   })
 
+  let cache = { at: 0, value: null }
+
+  async function readUsage() {
+    if (Date.now() - cache.at < CACHE_MS && cache.value) return cache.value
+    const value = await readLedger()
+    cache = { at: Date.now(), value }
+    return value
+  }
+
   const route = {
     kind: 'exact',
     path: ROUTE,
     handler: async (req, res) => {
+
       const usage = await readUsage()
       const payload = {
         ok: true,
         busy: running.size > 0,
         running: running.size,
-        cny: usage?.cny ?? null,
-        stars: usage?.cny != null ? Math.round(usage.cny * 10) : null,
-        todayCny: usage?.todayCny ?? null,
-        todayStars: usage?.todayCny != null ? Math.round(usage.todayCny * 10) : null,
+        cny: usage.cny,
+        stars: usage.cny != null ? Math.round(usage.cny * 10) : null,
+        todayCny: usage.todayCny,
+        todayStars: usage.todayCny != null ? Math.round(usage.todayCny * 10) : null,
+        source: usage.source,
       }
       const body = JSON.stringify(payload)
       res.writeHead(200, {
