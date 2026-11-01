@@ -1,0 +1,42 @@
+{
+  "name": "dsh-jinhsi-avatar",
+  "version": "1.0.1",
+  "description": "DSH 窗口里的今汐形象体：官方立绘经图生视频生成待机/行走/飞行/打盹四组动作，逐帧抠图成透明循环动画；会自己在窗口里走动、尺寸随远近变化、点击回应并报账户余额（星声）。",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "README.md",
+    "preview.png"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "avatar",
+    "desktop-pet",
+    "wuthering-waves",
+    "jinhsi",
+    "image-to-video"
+  ],
+  "author": "tenfeng",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [],
+      "platform": "web"
+    }
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}
