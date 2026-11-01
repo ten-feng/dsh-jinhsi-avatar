@@ -43,6 +43,11 @@ window.__ModuleLoader__.load({
     let todayCny = null
     let serverBusy = false
     let sessionBusy = false
+    let replyOpen = false
+    let replyTs = 0
+    let boundWrap = null
+    let boundAudio = null
+    let replyHandler = null
     let lastPollAt = 0
 
     async function pollAvatarState(force) {
@@ -55,6 +60,10 @@ window.__ModuleLoader__.load({
         if (typeof data.cny === 'number') balanceCny = data.cny
         if (typeof data.todayCny === 'number') todayCny = data.todayCny
         if (typeof data.busy === 'boolean') serverBusy = data.busy
+        const rep = data.reply
+        if (rep && rep.text && Number(rep.ts) !== replyTs) {
+          if (typeof replyHandler === 'function') replyHandler(rep.text, Number(rep.ts) || Date.now())
+        }
       } catch (error) {
       }
     }
@@ -402,6 +411,14 @@ window.__ModuleLoader__.load({
 .dsha-sparkle i:nth-child(4){right:20%;top:66%;animation-delay:1.05s}
 .dsha-bubble{position:absolute;left:50%;bottom:calc(100% - 6px);transform:translate(-50%,6px);max-width:230px;width:max-content;padding:7px 11px;border-radius:12px;background:rgba(255,255,255,.97);color:#1b1c33;font-size:12.5px;line-height:1.45;box-shadow:0 6px 18px rgba(20,20,55,.22);opacity:0;pointer-events:none;transition:opacity .18s ease,transform .18s ease;white-space:pre-wrap;z-index:9}
 
+.dsha-reply{position:absolute;left:50%;bottom:calc(100% + 8px);transform:translate(-50%,8px);width:248px;max-height:168px;display:flex;flex-direction:column;gap:6px;padding:9px 11px;border-radius:14px;background:rgba(255,255,255,.98);color:#1b1c33;font-size:12.5px;line-height:1.5;box-shadow:0 10px 26px rgba(20,20,55,.26);opacity:0;pointer-events:none;transition:opacity .18s ease,transform .18s ease;z-index:10}
+.dsha-reply[data-on="1"]{opacity:1;transform:translate(-50%,0);pointer-events:auto}
+.dsha-reply-text{overflow:auto;max-height:128px;white-space:pre-wrap;word-break:break-word;padding-right:2px}
+.dsha-reply-row{display:flex;align-items:center;gap:8px}
+.dsha-voice{border:0;border-radius:9px;padding:3px 9px;background:#eef2ff;color:#3d4bd8;font-size:12px;cursor:pointer;display:none;align-items:center;gap:5px}
+.dsha-voice[data-on="1"]{display:inline-flex}
+.dsha-voice[data-playing="1"]{background:#dbe4ff}
+.dsha-voice:active{transform:scale(.96)}
 .dsha-bubble[data-on="1"]{opacity:1;transform:translate(-50%,0)}
 .dsha-bubble::after{content:"";position:absolute;left:50%;top:100%;margin-left:-6px;border:6px solid transparent;border-top-color:rgba(255,255,255,.97)}
 
@@ -497,11 +514,26 @@ window.__ModuleLoader__.load({
       const bubble = document.createElement('div')
       bubble.className = 'dsha-bubble'
 
+      const reply = document.createElement('div')
+      reply.className = 'dsha-reply'
+      reply.dataset.on = '0'
+      const replyText = document.createElement('div')
+      replyText.className = 'dsha-reply-text'
+      const replyRow = document.createElement('div')
+      replyRow.className = 'dsha-reply-row'
+      const voiceBtn = document.createElement('button')
+      voiceBtn.type = 'button'
+      voiceBtn.className = 'dsha-voice'
+      voiceBtn.dataset.on = '0'
+      voiceBtn.textContent = '🔊 播放语音'
+      replyRow.appendChild(voiceBtn)
+      reply.append(replyText, replyRow)
+
       const body = document.createElement('div')
       body.className = 'dsha-body'
       body.innerHTML = figure()
 
-      root.append(bubble, body)
+      root.append(bubble, reply, body)
       document.body.appendChild(root)
 
       /* ---------- 几何 ---------- */
@@ -597,6 +629,130 @@ window.__ModuleLoader__.load({
         place(start.x, start.y)
       }
 
+
+      /* ---------- DSH 回复镜像（文本 + 语音） ---------- */
+
+
+      function voiceWraps() {
+        return Array.from(document.querySelectorAll('[data-dshv-voice-player]'))
+      }
+
+      function pauseOtherAudio(except) {
+        for (const wrap of voiceWraps()) {
+          const audio = wrap.__dshvAudio || wrap.querySelector('audio')
+          if (audio && audio !== except && !audio.paused) {
+            try { audio.pause() } catch (error) { /* ignore */ }
+          }
+        }
+      }
+
+      // 找与本条回复对应的语音播放器：最后一条播放器，且其祖先容器里有这条回复的文字
+      function findPlayerFor(text) {
+        const wraps = voiceWraps()
+        if (!wraps.length) return null
+        const snippet = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 16)
+        const last = wraps[wraps.length - 1]
+        if (!snippet) return last
+        let node = last
+        for (let i = 0; i < 8 && node && node !== document.body; i += 1) {
+          const t = (node.textContent || '').replace(/\s+/g, ' ')
+          if (t.indexOf(snippet) !== -1) return last
+          node = node.parentElement
+        }
+        return null
+      }
+
+      function syncVoiceButton() {
+        const wrap = boundWrap
+        const audio = boundAudio
+        if (!replyOpen || !wrap || !audio || !wrap.isConnected) {
+          voiceBtn.dataset.on = '0'
+          voiceBtn.dataset.playing = '0'
+          voiceBtn.textContent = '🔊 播放语音'
+          return
+        }
+        voiceBtn.dataset.on = '1'
+        const playing = !audio.paused && !audio.ended
+        voiceBtn.dataset.playing = playing ? '1' : '0'
+        voiceBtn.textContent = playing ? '⏸ 暂停语音' : '🔊 播放语音'
+      }
+
+      function bindVoice(text) {
+        const wrap = findPlayerFor(text)
+        if (boundAudio) {
+          try { boundAudio.pause() } catch (error) { /* ignore */ }
+        }
+        boundWrap = wrap || null
+        boundAudio = wrap ? (wrap.__dshvAudio || wrap.querySelector('audio')) : null
+        if (boundAudio) {
+          if (!boundAudio.__dshaBound) {
+            boundAudio.__dshaBound = true
+            const sync = () => syncVoiceButton()
+            boundAudio.addEventListener('play', sync)
+            boundAudio.addEventListener('pause', sync)
+            boundAudio.addEventListener('ended', sync)
+          }
+        }
+        syncVoiceButton()
+      }
+
+      function showReply(text, ts) {
+        if (!reply || !replyText) return
+        // 新回复：先停掉旧语音
+        if (boundAudio) {
+          try { boundAudio.pause() } catch (error) { /* ignore */ }
+        }
+        replyTs = ts || Date.now()
+        replyOpen = true
+        replyText.textContent = text
+        replyText.scrollTop = 0
+        bubble.dataset.on = '0'
+        reply.dataset.on = '1'
+        bindVoice(text)
+      }
+
+      function closeReply() {
+        if (!replyOpen) return
+        replyOpen = false
+        reply.dataset.on = '0'
+        if (boundAudio) {
+          try { boundAudio.pause() } catch (error) { /* ignore */ }
+        }
+        boundWrap = null
+        boundAudio = null
+        syncVoiceButton()
+      }
+
+      replyHandler = showReply
+
+      voiceBtn.addEventListener('click', (event) => {
+        event.stopPropagation()
+        if (!boundAudio) return
+        if (boundAudio.paused || boundAudio.ended) {
+          pauseOtherAudio(boundAudio)
+          const playing = boundAudio.play()
+          if (playing && typeof playing.catch === 'function') {
+            playing.catch(() => { voiceBtn.textContent = '⚠ 播放失败' })
+          }
+        } else {
+          boundAudio.pause()
+        }
+        syncVoiceButton()
+      })
+
+      // 右键：交给 DSH 自己的「转文字」菜单
+      voiceBtn.addEventListener('contextmenu', (event) => {
+        if (!boundWrap) return
+        event.preventDefault()
+        event.stopPropagation()
+        boundWrap.dispatchEvent(new MouseEvent('contextmenu', {
+          bubbles: true,
+          cancelable: true,
+          clientX: event.clientX,
+          clientY: event.clientY,
+        }))
+      })
+
       /* ---------- 说话气泡 ---------- */
 
       let bubbleTimer = 0
@@ -656,6 +812,7 @@ window.__ModuleLoader__.load({
 
       async function react() {
         playClick()
+        closeReply()
         touch()
         // 先等一次状态请求回来（最多 900ms），保证第一次点击也能看到余额
         await Promise.race([
@@ -959,7 +1116,7 @@ window.__ModuleLoader__.load({
             const rate = readRate()
             if (rate) lastRate = rate
           }
-          if (lastRate && now - busyShowAt > 12000) {
+          if (!replyOpen && lastRate && now - busyShowAt > 12000) {
             busyShowAt = now
             say('思考速度：' + lastRate + 'tok/s', 2000)
           }
