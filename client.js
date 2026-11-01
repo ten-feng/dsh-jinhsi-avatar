@@ -576,27 +576,8 @@ window.__ModuleLoader__.load({
 
       // 逛的范围：尽量待在对话区里，别爬到左侧会话列表上
       function roamBounds() {
-        const s = size()
-        const base = bounds()
-        let area = null
-        try {
-          const ta = document.querySelector('textarea, [contenteditable="true"]')
-          if (ta) {
-            const tr = ta.getBoundingClientRect()
-            const box = ta.closest('form') || ta.parentElement || ta
-            const br = box.getBoundingClientRect()
-            if (tr.width >= 120 && br.width >= 260) area = br
-          }
-        } catch (error) {
-          area = null
-        }
-        if (!area) return { minX: 2, maxX: base.maxX, minY: 2, maxY: base.maxY }
-        const minX = Math.max(2, area.left + 8)
-        const maxX = Math.min(base.maxX, area.right - s.w - 8)
-        const maxY = Math.max(2, Math.min(base.maxY, area.top - s.h - 8))
-        if (maxX <= minX + 20) return { minX: 2, maxX: base.maxX, minY: 2, maxY: base.maxY }
-        return { minX, maxX, minY: 44, maxY }
-      }
+        // 全窗口漫游：不再限制在对话区里
+        return bounds()}
 
       function place(x, y) {
         const b = bounds()
@@ -626,6 +607,34 @@ window.__ModuleLoader__.load({
       }
 
       /* ---------- 互动 ---------- */
+
+      // ---------- 读取界面上的实时生成速度（tok/s） ----------
+      let rateNode = null
+      let lastRate = null
+      let rateCheckedAt = 0
+
+      function findRateNode() {
+        try {
+          const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+          let node = null
+          let found = null
+          while ((node = walker.nextNode())) {
+            if (node.nodeValue && node.nodeValue.indexOf('tok/s') >= 0) found = node.parentElement
+          }
+          return found
+        } catch (error) {
+          return null
+        }
+      }
+
+      function readRate() {
+        if (!rateNode || !rateNode.isConnected || (rateNode.textContent || '').indexOf('tok/s') < 0) {
+          rateNode = findRateNode()
+        }
+        if (!rateNode) return null
+        const match = /([0-9]+(?:\.[0-9]+)?)\s*tok\/s/i.exec(rateNode.textContent || '')
+        return match ? match[1] : null
+      }
 
       let lastActivity = Date.now()
 
@@ -899,6 +908,16 @@ window.__ModuleLoader__.load({
         root.style.setProperty('--dsha-mouth', mouth.toFixed(3))
 
         if (motion.mode !== 'held' && motion.roam && now > motion.nextDecision) decide(now)
+
+        // 会话进行中：气泡常驻显示生成速度
+        if (sessionBusy) {
+          if (now - rateCheckedAt > 700) {
+            rateCheckedAt = now
+            const rate = readRate()
+            if (rate) lastRate = rate
+            if (lastRate) say('生成速度：' + lastRate + 'tok/s', 2500)
+          }
+        }
 
         const b = bounds()
         if (motion.mode === 'fly' && motion.target) {
