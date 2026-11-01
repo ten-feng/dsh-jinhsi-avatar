@@ -615,6 +615,7 @@ window.__ModuleLoader__.load({
       let rateNode = null
       let lastRate = null
       let rateCheckedAt = 0
+      let heldSince = 0
       let busyShowAt = 0
 
       function findRateNode() {
@@ -698,6 +699,10 @@ window.__ModuleLoader__.load({
         drag.moved += Math.abs(event.movementX || 0) + Math.abs(event.movementY || 0)
         place(event.clientX - drag.dx, event.clientY - drag.dy)
       })
+      // 指针在窗口外松开时 body 可能收不到 pointerup，这里兜一层
+      window.addEventListener('pointerup', () => { if (drag) drag.release = true })
+      window.addEventListener('blur', () => { if (drag && drag.release) drag = null })
+
       const endDrag = () => {
         if (!drag) return
         const moved = drag.moved
@@ -884,6 +889,18 @@ window.__ModuleLoader__.load({
         // 忙碌只认会话状态；界面上的 tok/s 仅用于显示数值
         sessionBusy = serverBusy
 
+        // 兜底：卡在 held 但已经没有拖拽句柄时，2 秒后强制回 rest
+        if (motion.mode === 'held' && !drag) {
+          if (!heldSince) heldSince = now
+          else if (now - heldSince > 2000) {
+            motion.mode = 'rest'
+            root.dataset.mode = 'rest'
+            heldSince = 0
+          }
+        } else {
+          heldSince = 0
+        }
+
         lookCurrent.x += (lookTarget.x - lookCurrent.x) * 0.12
         lookCurrent.y += (lookTarget.y - lookCurrent.y) * 0.12
         root.style.setProperty('--dsha-look-x', lookCurrent.x.toFixed(2) + 'px')
@@ -937,7 +954,7 @@ window.__ModuleLoader__.load({
         }
         // 会话进行中：每 12 秒露一次气泡，停留 2 秒
         if (sessionBusy) {
-          if (now - rateCheckedAt > 700) {
+          if (now - rateCheckedAt > 1200) {
             rateCheckedAt = now
             const rate = readRate()
             if (rate) lastRate = rate
@@ -948,31 +965,39 @@ window.__ModuleLoader__.load({
           }
         } else {
           busyShowAt = 0
+          lastRate = null
         }
 
         const b = bounds()
         if (motion.mode === 'fly' && motion.target) {
-          const dx = motion.target.x - motion.x
-          const dy = motion.target.y - motion.y
-          const dist = Math.hypot(dx, dy)
-          const step = Math.min(dist, dt * 0.14)
-          if (dist < 6) {
-            motion.x = motion.target.x
-            motion.y = motion.target.y
+          // 目标坐标必须有效，否则丢弃目标回到静止（避免位置被写成 NaN）
+          if (!Number.isFinite(motion.target.x) || !Number.isFinite(motion.target.y)) {
+            motion.target = null
             motion.mode = 'rest'
             root.dataset.mode = 'rest'
-            motion.target = null
-            motion.nextDecision = now + 1600 + Math.random() * 3600
-          } else {
-            motion.x += (dx / dist) * step
-            motion.y += (dy / dist) * step
-            motion.facing = dx > 0 ? 1 : -1
           }
-          root.style.setProperty(
-            '--dsha-tail',
-            (Math.sin(ts / 110) * (14 + Math.min(16, dist / 8))).toFixed(1) + 'deg',
-          )
-        } else if (motion.mode === 'walk') {
+          if (motion.target) {
+            const dx = motion.target.x - motion.x
+            const dy = motion.target.y - motion.y
+            const dist = Math.hypot(dx, dy)
+            const step = Math.min(dist, dt * 0.14)
+            if (dist < 6) {
+              motion.x = motion.target.x
+              motion.y = motion.target.y
+              motion.mode = 'rest'
+              root.dataset.mode = 'rest'
+              motion.target = null
+              motion.nextDecision = now + 1600 + Math.random() * 3600
+            } else {
+              motion.x += (dx / dist) * step
+              motion.y += (dy / dist) * step
+              motion.facing = dx > 0 ? 1 : -1
+            }
+            root.style.setProperty(
+              '--dsha-tail',
+              (Math.sin(ts / 110) * (14 + Math.min(16, dist / 8))).toFixed(1) + 'deg',
+            )
+          }        } else if (motion.mode === 'walk') {
           const area = roamBounds()
           // 落地要慢：指数逼近 + 每帧限速，避免从高处切到"走"时突然掉一段
           const dropStep = (area.maxY - motion.y) * Math.min(1, dt * 0.0016)
