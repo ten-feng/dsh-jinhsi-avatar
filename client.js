@@ -43,8 +43,6 @@ window.__ModuleLoader__.load({
     let todayCny = null
     let serverBusy = false
     let sessionBusy = false
-    let uiBusyUntil = 0
-    let rateProbeAt = 0
     let lastPollAt = 0
 
     async function pollAvatarState(force) {
@@ -882,16 +880,8 @@ window.__ModuleLoader__.load({
         lastTs = ts
         const now = Date.now()
 
-        // 每 700ms 看一眼界面上的 tok/s：有数字就认为在生成，作为服务端标志的自愈兜底
-        if (now - rateProbeAt > 700) {
-          rateProbeAt = now
-          const probe = readRate()
-          if (probe) {
-            lastRate = probe
-            uiBusyUntil = now + 2500
-          }
-        }
-        sessionBusy = serverBusy || now < uiBusyUntil
+        // 忙碌只认会话状态；界面上的 tok/s 仅用于显示数值
+        sessionBusy = serverBusy
 
         lookCurrent.x += (lookTarget.x - lookCurrent.x) * 0.12
         lookCurrent.y += (lookTarget.y - lookCurrent.y) * 0.12
