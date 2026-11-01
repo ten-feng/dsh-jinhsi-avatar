@@ -27,18 +27,20 @@ GET /dsh-avatar/state
 
 ## 安装
 
+从 GitHub 安装：
+
 ```bash
-dsh plugin add dsh-jinhsi-avatar
+dsh plugin add github:ten-feng/dsh-jinhsi-avatar
 ```
 
 或写进 profile 的 `package.json`（两处都要）：
 
 ```jsonc
-"dependencies": { "dsh-jinhsi-avatar": "^1.1.0" },
+"dependencies": { "dsh-jinhsi-avatar": "github:ten-feng/dsh-jinhsi-avatar" },
 "dsh": { "profile": { "bundles": [ ..., "dsh-jinhsi-avatar" ] } }
 ```
 
-装完重启 DSH。
+装完重启 DSH。npm 包暂未发布。
 
 ## 交互
 
