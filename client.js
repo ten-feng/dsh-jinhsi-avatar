@@ -73,6 +73,76 @@ window.__ModuleLoader__.load({
       return parts.length ? parts.join(' · ') : null
     }
 
+    // ---------- 点击音效：敲瓷碗（实时合成，无音频文件） ----------
+    let clickCtx = null
+    const BOWL_NOTES = [1046.5, 1174.7, 1318.5, 1568.0, 1760.0]
+    const BOWL_RATIOS = [1, 2.76, 5.4, 8.93]
+    const BOWL_GAINS = [0.82, 0.46, 0.3, 0.16]
+    const BOWL_DECAY = [0.95, 0.6, 0.34, 0.18]
+
+    function playClick() {
+      try {
+        const AC = window.AudioContext || window.webkitAudioContext
+        if (!AC) return
+        if (!clickCtx) clickCtx = new AC()
+        if (clickCtx.state === 'suspended') void clickCtx.resume()
+        // 一次点击 = 从五个音里随机敲一下
+        const freq = BOWL_NOTES[Math.floor(Math.random() * BOWL_NOTES.length)]
+        bowlHit(freq, clickCtx.currentTime, 1)
+      } catch (error) {
+        /* 播放失败静默 */
+      }
+    }
+
+    // 单次敲击：陶瓷碗的非谐和分音 + 磕碰噪声
+    function bowlHit(base, at, weight) {
+      const t = at
+      const master = clickCtx.createGain()
+      master.gain.value = 0.24 * weight
+      const hp = clickCtx.createBiquadFilter()
+      hp.type = 'highpass'
+      hp.frequency.value = 480
+      const lp = clickCtx.createBiquadFilter()
+      lp.type = 'lowpass'
+      lp.frequency.value = 13000
+      master.connect(hp)
+      hp.connect(lp)
+      lp.connect(clickCtx.destination)
+
+      const dur = 0.012
+      const buffer = clickCtx.createBuffer(1, Math.ceil(clickCtx.sampleRate * dur), clickCtx.sampleRate)
+      const data = buffer.getChannelData(0)
+      for (let i = 0; i < data.length; i += 1) {
+        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / data.length, 3)
+      }
+      const noise = clickCtx.createBufferSource()
+      noise.buffer = buffer
+      const nbp = clickCtx.createBiquadFilter()
+      nbp.type = 'bandpass'
+      nbp.frequency.value = 3200
+      nbp.Q.value = 0.9
+      const ng = clickCtx.createGain()
+      ng.gain.value = 0.5
+      noise.connect(nbp)
+      nbp.connect(ng)
+      ng.connect(master)
+      noise.start(t)
+
+      BOWL_RATIOS.forEach((ratio, i) => {
+        const osc = clickCtx.createOscillator()
+        const g = clickCtx.createGain()
+        osc.type = 'sine'
+        osc.frequency.value = base * ratio
+        g.gain.setValueAtTime(0.0001, t)
+        g.gain.exponentialRampToValueAtTime(BOWL_GAINS[i], t + 0.003)
+        g.gain.exponentialRampToValueAtTime(0.0001, t + BOWL_DECAY[i])
+        osc.connect(g)
+        g.connect(master)
+        osc.start(t)
+        osc.stop(t + BOWL_DECAY[i] + 0.05)
+      })
+    }
+
     /* ================= 状态持久化 ================= */
 
     function loadState() {
@@ -572,7 +642,6 @@ window.__ModuleLoader__.load({
         playClick()
         touch()
         void pollAvatarState(true)
-      ensurePolling()
         const bal = balanceLine()
         say(bal && Math.random() < 0.5 ? bal : LINES[Math.floor(Math.random() * LINES.length)], 1800)
         const inner = body.querySelector('.dsha-inner')
