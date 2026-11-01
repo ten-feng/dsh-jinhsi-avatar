@@ -1,0 +1,6 @@
+# dsh-avatar bundle for DeepSeek Harness.
+# Pure client-side plugin: the host half only registers the entry,
+# the avatar widget is mounted by client.js in the browser.
+- insert:
+    - id: avatar
+      name: dsh-jinhsi-avatar
