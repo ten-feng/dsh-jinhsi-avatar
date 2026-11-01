@@ -30,12 +30,11 @@ window.__ModuleLoader__.load({
     const SLEEP_AFTER_MS = 150000
 
     const LINES = [
-      '噗——',
-      '在呢。',
-      '我在听。',
-      '要我做什么？',
-      '咕噜咕噜。',
-      '这条街我熟。',
+      '欢迎来到今州',
+      '惊才现世，海沸山摇',
+      '有什么想祈福的吗？',
+      '天宿庭光！',
+      '今州地大物博',
     ]
 
 
@@ -56,10 +55,10 @@ window.__ModuleLoader__.load({
         if (typeof data.todayCny === 'number') todayCny = data.todayCny
         if (typeof data.busy === 'boolean') sessionBusy = data.busy
       } catch (error) {
-        /* 宿主没起来或路由不可用时静默 */
       }
     }
 
+    let clickCount = 0
     let pollTimer = 0
     function ensurePolling() {
       if (pollTimer) return
@@ -68,9 +67,9 @@ window.__ModuleLoader__.load({
 
     function balanceLine() {
       const parts = []
-      if (balanceCny !== null) parts.push('余额' + Math.round(balanceCny * 10) + ' 星声')
-      if (todayCny !== null) parts.push('今日' + Math.round(todayCny * 10) + ' 星声')
-      return parts.length ? parts.join(' · ') : null
+      if (balanceCny !== null) parts.push('账号余额' + Math.round(balanceCny * 10) + '星声')
+      if (todayCny !== null) parts.push('今日已用' + Math.round(todayCny * 10) + '星声')
+      return parts.length ? parts.join('，') : null
     }
 
     // ---------- 点击音效：敲瓷碗（实时合成，无音频文件） ----------
@@ -638,12 +637,19 @@ window.__ModuleLoader__.load({
         }
       }
 
-      function react() {
+      async function react() {
         playClick()
         touch()
-        void pollAvatarState(true)
+        // 先等一次状态请求回来（最多 900ms），保证第一次点击也能看到余额
+        await Promise.race([
+          pollAvatarState(true),
+          new Promise((resolve) => setTimeout(resolve, 900)),
+        ])
+        clickCount += 1
         const bal = balanceLine()
-        say(bal && Math.random() < 0.5 ? bal : LINES[Math.floor(Math.random() * LINES.length)], 1800)
+        const pool = bal ? LINES.concat([bal]) : LINES
+        const forceBal = bal && (clickCount === 1 || clickCount % 3 === 0)
+        say(forceBal ? bal : pool[Math.floor(Math.random() * pool.length)], 1800)
         const inner = body.querySelector('.dsha-inner')
         if (inner && inner.animate) {
           inner.animate(
@@ -700,7 +706,7 @@ window.__ModuleLoader__.load({
         motion.nextDecision = Date.now() + Math.max(2000, dist / 0.14)
         setSizeTo(SIZES[1], Math.max(600, dist / 0.14))
         saveState({ x: null, y: null })
-        say('回窝了。', 1200)
+        say('疏忽了......', 1200)
         touch()
       })
 
