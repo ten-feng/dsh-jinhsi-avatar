@@ -412,7 +412,7 @@ window.__ModuleLoader__.load({
 .dsha-sparkle i:nth-child(4){right:20%;top:66%;animation-delay:1.05s}
 .dsha-bubble{position:absolute;left:50%;bottom:calc(100% - 6px);transform:translate(-50%,6px);max-width:230px;width:max-content;padding:7px 11px;border-radius:12px;background:rgba(255,255,255,.97);color:#1b1c33;font-size:12.5px;line-height:1.45;box-shadow:0 6px 18px rgba(20,20,55,.22);opacity:0;pointer-events:none;transition:opacity .18s ease,transform .18s ease;white-space:pre-wrap;z-index:9}
 
-.dsha-reply{position:absolute;left:50%;bottom:calc(100% + 8px);transform:translate(-50%,8px);width:248px;max-height:168px;display:flex;flex-direction:column;gap:6px;padding:9px 11px;border-radius:14px;background:rgba(255,255,255,.98);color:#1b1c33;font-size:12.5px;line-height:1.5;box-shadow:0 10px 26px rgba(20,20,55,.26);opacity:0;pointer-events:none;transition:opacity .18s ease,transform .18s ease;z-index:10}
+.dsha-reply{position:absolute;left:50%;bottom:calc(100% + 8px);transform:translate(-50%,8px);width:max-content;max-width:248px;min-width:92px;max-height:168px;display:flex;flex-direction:column;gap:6px;padding:9px 11px;border-radius:14px;background:rgba(255,255,255,.98);color:#1b1c33;font-size:12.5px;line-height:1.5;box-shadow:0 10px 26px rgba(20,20,55,.26);opacity:0;pointer-events:none;transition:opacity .18s ease,transform .18s ease;z-index:10}
 .dsha-reply[data-on="1"]{opacity:1;transform:translate(-50%,0);pointer-events:auto}
 .dsha-reply-text{overflow:auto;max-height:128px;white-space:pre-wrap;word-break:break-word;padding-right:2px}
 .dsha-reply-row{display:flex;align-items:center;gap:8px}
@@ -1149,9 +1149,6 @@ window.__ModuleLoader__.load({
           bubble.dataset.on = '0'
           thinkingSince = Date.now()
           syncVoiceButton()
-        }
-        if (replyThinking && reply.dataset.on === '1' && now - thinkingSince > 4000) {
-          reply.dataset.on = '0'
         }
         if (!sessionBusy && replyThinking) {
           replyThinking = false
