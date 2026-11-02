@@ -420,10 +420,10 @@ window.__ModuleLoader__.load({
 .dsha-reply[data-on="1"]{opacity:1;transform:translate(-50%,0);pointer-events:auto}
 .dsha-reply-text{overflow:auto;max-height:128px;white-space:pre-wrap;word-break:break-word;padding-right:2px}
 .dsha-reply-row{display:flex;align-items:center;gap:8px}
-.dsha-voice{border:0;border-radius:8px;padding:5px 10px;background:#95ec69;color:#14421a;font-size:12px;font-weight:600;cursor:pointer;display:none;align-items:center;gap:6px;max-width:100%}
-.dsha-voice:hover{filter:brightness(.97)}
-.dsha-voice[data-on="1"]{display:inline-flex}
-.dsha-voice[data-playing="1"]{background:#7fd94f}
+.dsha-voice{display:none;align-self:flex-start}
+
+.dsha-voice[data-on="1"]{display:inline-flex !important}
+
 .dsha-voice:active{transform:scale(.96)}
 .dsha-bubble[data-on="1"]{opacity:1;transform:translate(-50%,0)}
 .dsha-bubble::after{content:"";position:absolute;left:50%;top:100%;margin-left:-6px;border:6px solid transparent;border-top-color:rgba(255,255,255,.97)}
@@ -529,9 +529,12 @@ window.__ModuleLoader__.load({
       replyRow.className = 'dsha-reply-row'
       const voiceBtn = document.createElement('button')
       voiceBtn.type = 'button'
-      voiceBtn.className = 'dsha-voice'
+      voiceBtn.className = 'dshv-wx-voice dsha-voice'
       voiceBtn.dataset.on = '0'
-      voiceBtn.textContent = '🔊 播放语音'
+      voiceBtn.innerHTML =
+        '<span class="dshv-wx-icon"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><path d="M12 19v3"/><path d="M8 22h8"/></svg></span>' +
+        '<span class="dshv-wx-bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>' +
+        '<span class="dshv-wx-duration"></span>'
       replyRow.appendChild(voiceBtn)
       reply.append(replyText, replyRow)
 
@@ -675,15 +678,19 @@ window.__ModuleLoader__.load({
         if (!replyOpen || !wrap || !audio || !wrap.isConnected) {
           voiceBtn.dataset.on = '0'
           voiceBtn.dataset.playing = '0'
-          voiceBtn.textContent = '🔊 播放语音'
+          voiceBtn.classList.remove('is-playing')
           return
         }
         voiceBtn.dataset.on = '1'
         const playing = !audio.paused && !audio.ended
         voiceBtn.dataset.playing = playing ? '1' : '0'
-        const secs = Number.isFinite(audio.duration) && audio.duration > 0 ? Math.max(1, Math.round(audio.duration)) + '″' : ''
-        const bars = playing ? '❙❙' : '🎙'
-        voiceBtn.textContent = bars + ' ' + (secs || '语音')
+        voiceBtn.classList.toggle('is-playing', playing)
+        const seconds = Number.isFinite(audio.duration) && audio.duration > 0 ? Math.max(1, Math.round(audio.duration)) : 0
+        const durationEl = voiceBtn.querySelector('.dshv-wx-duration')
+        if (durationEl) durationEl.textContent = seconds ? seconds + '″' : ''
+        if (seconds) {
+          voiceBtn.style.width = Math.round(Math.max(96, Math.min(238, 96 + seconds * 4.6))) + 'px'
+        }
       }
 
       function bindVoice(text) {
@@ -700,6 +707,8 @@ window.__ModuleLoader__.load({
             boundAudio.addEventListener('play', sync)
             boundAudio.addEventListener('pause', sync)
             boundAudio.addEventListener('ended', sync)
+            boundAudio.addEventListener('loadedmetadata', sync)
+            boundAudio.addEventListener('durationchange', sync)
           }
         }
         syncVoiceButton()
