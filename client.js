@@ -690,9 +690,16 @@ window.__ModuleLoader__.load({
         const playing = !audio.paused && !audio.ended
         voiceBtn.dataset.playing = playing ? '1' : '0'
         voiceBtn.classList.toggle('is-playing', playing)
-        const seconds = Number.isFinite(audio.duration) && audio.duration > 0 ? Math.max(1, Math.round(audio.duration)) : 0
+        // 时长优先用原播放器上已渲染的那个（来自围栏里的 duration），其次读音频元数据
+        const srcDurText = (boundWrap && boundWrap.querySelector('[data-role="duration"]'))
+          ? String(boundWrap.querySelector('[data-role="duration"]').textContent || '').trim()
+          : ''
+        let seconds = 0
+        const parsed = /([0-9]+)/.exec(srcDurText)
+        if (parsed) seconds = Number(parsed[1])
+        else if (Number.isFinite(audio.duration) && audio.duration > 0) seconds = Math.max(1, Math.round(audio.duration))
         const durationEl = voiceBtn.querySelector('.dshv-wx-duration')
-        if (durationEl) durationEl.textContent = seconds ? seconds + '″' : ''
+        if (durationEl) durationEl.textContent = srcDurText || (seconds ? seconds + '″' : '')
         if (seconds) {
           voiceBtn.style.width = Math.round(Math.max(96, Math.min(238, 96 + seconds * 4.6))) + 'px'
         }
