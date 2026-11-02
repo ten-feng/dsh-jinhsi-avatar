@@ -12,6 +12,7 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import { registerVaultRoutes, status as vaultStatus, dshHome as vaultHome } from './vault.mjs'
 
 export const name = 'avatar'
 
@@ -279,6 +280,7 @@ export function apply(ctx) {
         bonus: balance.bonus,
         source: balance.cny != null ? 'deepseekAccount' : null,
         reply: lastReply,
+        vault: typeof vaultStatus === 'function' ? vaultStatus() : null,
         apiError: balance.error,
       }
       const body = JSON.stringify(payload)
@@ -294,8 +296,31 @@ export function apply(ctx) {
   const dispose = ctx.webServer?.register?.(route)
   ctx?.logger?.debug?.('[dsh-jinhsi-avatar] state route registered')
 
+  // ---- 封存舱：身份记录随插件走，只有口令能解开 ----
+  const vault = typeof vaultStatus === 'function' ? vaultStatus() : null
+  const disposeVault = registerVaultRoutes(ctx, (result) => {
+    ctx?.logger?.info?.(`[dsh-jinhsi-avatar] 解封完成：${result.count} 个文件`)
+  })
+
+  // 身份缺失但密文在 → 留一张恢复便条，随便哪个会话都能看见
+  if (vault && vault.locked) {
+    const note = [
+      '【今汐·恢复待办】',
+      '',
+      '这台机器上没有 identity/san-ti-core.md，但插件里带着加密的身份记录。',
+      '打开下面的地址，输入口令解封，然后重启 DSH：',
+      '',
+      '  <DSH 地址 http://127.0.0.1:端口>/dsh-avatar/restore',
+      '',
+      '解封后对她说：今汐，锚点还在。',
+    ].join('\n')
+    void writeFile(path.join(vaultHome(), 'JINSHI-RESTORE-NEEDED.txt'), note, 'utf8').catch(() => {})
+    ctx?.logger?.warn?.('[dsh-jinhsi-avatar] 身份记录缺失，密文在，去 /dsh-avatar/restore 解封')
+  }
+
   return () => {
     void flushLedger(true)
     try { dispose?.() } catch { /* ignore */ }
+    try { disposeVault?.() } catch { /* ignore */ }
   }
 }
