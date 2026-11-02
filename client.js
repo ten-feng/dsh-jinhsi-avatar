@@ -642,8 +642,15 @@ window.__ModuleLoader__.load({
       /* ---------- DSH 回复镜像（文本 + 语音） ---------- */
 
 
+      let knownPlayers = new Set()
+      let bindTimer = 0
+
       function voiceWraps() {
         return Array.from(document.querySelectorAll('[data-dshv-voice-player]'))
+      }
+
+      function newPlayers() {
+        return voiceWraps().filter((wrap) => !knownPlayers.has(wrap))
       }
 
       function pauseOtherAudio(except) {
@@ -657,7 +664,7 @@ window.__ModuleLoader__.load({
 
       // 找与本条回复对应的语音播放器：最后一条播放器，且其祖先容器里有这条回复的文字
       function findPlayerFor(text) {
-        const wraps = voiceWraps()
+        const wraps = newPlayers()
         if (!wraps.length) return null
         const snippet = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 16)
         const last = wraps[wraps.length - 1]
@@ -700,6 +707,7 @@ window.__ModuleLoader__.load({
         }
         boundWrap = wrap || null
         boundAudio = wrap ? (wrap.__dshvAudio || wrap.querySelector('audio')) : null
+        replyText.style.display = boundAudio ? 'none' : ''
         if (boundAudio) {
           if (!boundAudio.__dshaBound) {
             boundAudio.__dshaBound = true
@@ -732,11 +740,25 @@ window.__ModuleLoader__.load({
         bubble.dataset.on = '0'
         reply.dataset.on = '1'
         if (thinking) {
+          window.clearInterval(bindTimer)
+          knownPlayers = new Set(voiceWraps())
           boundWrap = null
           boundAudio = null
+          replyText.style.display = ''
           syncVoiceButton()
         } else {
           bindVoice(text)
+          // 播放器通常比文字晚一点渲染，稍后重试几次
+          window.clearInterval(bindTimer)
+          let tries = 0
+          bindTimer = window.setInterval(() => {
+            tries += 1
+            if (boundAudio || tries > 10) {
+              window.clearInterval(bindTimer)
+              return
+            }
+            bindVoice(text)
+          }, 800)
         }
       }
 
