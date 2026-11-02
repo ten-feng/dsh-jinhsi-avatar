@@ -414,7 +414,7 @@ window.__ModuleLoader__.load({
 
 .dsha-reply{position:absolute;left:50%;bottom:calc(100% + 8px);transform:translate(-50%,8px);width:max-content;max-width:248px;min-width:92px;max-height:168px;display:flex;flex-direction:column;gap:5px;padding:6px 8px;border-radius:12px;background:rgba(255,255,255,.97);-webkit-backdrop-filter:blur(10px) saturate(1.1);backdrop-filter:blur(10px) saturate(1.1);color:#1b1c33;font-size:12.5px;line-height:1.45;box-shadow:0 8px 22px rgba(20,20,55,.16);opacity:0;pointer-events:none;transition:opacity .18s ease,transform .18s ease;z-index:10}
 .dsha-reply[data-on="1"]{opacity:1;transform:translate(-50%,0);pointer-events:auto}
-.dsha-reply-text{overflow:auto;max-height:128px;white-space:pre-wrap;word-break:break-word;padding-right:2px}
+.dsha-reply-text{overflow:hidden;max-height:calc(2 * 1.5em);white-space:pre-wrap;word-break:break-word;padding-right:2px}
 .dsha-reply-row{display:flex;align-items:center;gap:8px}
 .dsha-reply .dsha-voice{display:none !important;align-self:flex-start}
 
@@ -747,9 +747,13 @@ window.__ModuleLoader__.load({
       }
 
       function stripVoiceFence(text) {
-        return String(text || '').replace(/```dsh-voice[\s\S]*?```/g, '').trim()
+        return String(text || '')
+          .replace(/\`\`\`dsh-voice[\s\S]*?\`\`\`/g, '')
+          .replace(/\`\`\`[\s\S]*?\`\`\`/g, '')
+          .replace(/\*\*/g, '')
+          .replace(/\`/g, '')
+          .trim()
       }
-
       function showReply(text, ts, thinking, voiceOnly) {
         if (!reply || !replyText) return
         text = stripVoiceFence(text)
@@ -765,6 +769,13 @@ window.__ModuleLoader__.load({
         replyText.textContent = text
         replyText.scrollTop = 0
         replyText.style.display = voiceOnly ? 'none' : ''
+        window.requestAnimationFrame(() => {
+          if (voiceOnly || thinking) return
+          if (!replyText || reply.dataset.on !== '1') return
+          if (replyText.scrollHeight > replyText.clientHeight + 2) {
+            reply.dataset.on = '0'
+          }
+        })
         bubble.dataset.on = '0'
         reply.dataset.on = '1'
         if (thinking) {
