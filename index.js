@@ -138,7 +138,8 @@ export function apply(ctx) {
   }
 
   // ---- 最新一条回复（供桌宠气泡镜像，只读，不改动原会话） ----
-  let lastReply = { text: '', ts: 0, turn: -1 }
+  let lastReply = { text: '', ts: 0 }
+  let pendingReply = ''
 
   // ---- 今日用量账本（本地按回合累计） ----
   let ledger = { date: todayKey(), cny: 0, tokens: 0, byModel: {} }
@@ -192,16 +193,22 @@ export function apply(ctx) {
     }
     if (event.type === 'turn/end') {
       running.delete(id)
+      if (pendingReply) {
+        lastReply = { text: pendingReply, ts: Date.now() }
+        pendingReply = ''
+      }
       void flushLedger(true)
       return
     }
     if (event.type !== 'assistant/message') {
       return
     }
+    // 只把「本回合最后一条助手消息」暂存起来，回合结束才发布，
+    // 这样气泡里不会出现中间步骤的思考/工具过程
     const message = event.data?.message
     const text = textOf(message)
     if (text) {
-      lastReply = { text: text.slice(0, 600), ts: Date.now(), turn: Number(event.data?.turn) || -1 }
+      pendingReply = text.slice(0, 600)
     }
     const usage = event.data?.usage
     if (!usage || typeof usage !== 'object') return
