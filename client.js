@@ -49,6 +49,8 @@ window.__ModuleLoader__.load({
     let boundAudio = null
     let replyHandler = null
     let wasBusy = false
+    let serverReply = null
+    let handledReplyTs = 0
     let lastPollAt = 0
 
     async function pollAvatarState(force) {
@@ -62,10 +64,7 @@ window.__ModuleLoader__.load({
         if (typeof data.todayCny === 'number') todayCny = data.todayCny
         if (typeof data.busy === 'boolean') serverBusy = data.busy
         wasBusy = serverBusy
-        const rep = data.reply
-        if (!serverBusy && rep && Number(rep.ts) !== replyTs && (rep.text || rep.voice)) {
-          if (typeof replyHandler === 'function') replyHandler(rep.text || '', Number(rep.ts) || Date.now(), false, !!rep.voice)
-        }
+        if (data.reply) serverReply = data.reply
       } catch (error) {
       }
     }
@@ -641,6 +640,7 @@ window.__ModuleLoader__.load({
 
       let knownPlayers = new Set()
       let replyThinking = false
+      let thinkingSince = 0
       let bindTimer = 0
 
       function voiceWraps() {
@@ -698,6 +698,25 @@ window.__ModuleLoader__.load({
         }
       }
 
+      function bindVoiceTo(wrap) {
+        if (boundAudio) {
+          try { boundAudio.pause() } catch (error) { /* ignore */ }
+        }
+        boundWrap = wrap || null
+        boundAudio = wrap ? (wrap.__dshvAudio || wrap.querySelector('audio')) : null
+        replyText.style.display = boundAudio ? 'none' : ''
+        if (boundAudio && !boundAudio.__dshaBound) {
+          boundAudio.__dshaBound = true
+          const sync = () => syncVoiceButton()
+          boundAudio.addEventListener('play', sync)
+          boundAudio.addEventListener('pause', sync)
+          boundAudio.addEventListener('ended', sync)
+          boundAudio.addEventListener('loadedmetadata', sync)
+          boundAudio.addEventListener('durationchange', sync)
+        }
+        syncVoiceButton()
+      }
+
       function bindVoice(text) {
         const wrap = findPlayerFor(text)
         if (boundAudio) {
@@ -727,7 +746,8 @@ window.__ModuleLoader__.load({
       function showReply(text, ts, thinking, voiceOnly) {
         if (!reply || !replyText) return
         text = stripVoiceFence(text)
-        if (!text && !voiceOnly) text = '思考中。。。'
+        if (thinking) text = '思考中'
+        if (!text && !voiceOnly) text = '思考中'
         replyThinking = !!thinking
         // 新回复：先停掉旧语音
         if (boundAudio) {
@@ -747,6 +767,20 @@ window.__ModuleLoader__.load({
           boundAudio = null
           replyText.style.display = ''
           syncVoiceButton()
+        } else if (voiceOnly) {
+          const wraps = voiceWraps()
+          bindVoiceTo(wraps.length ? wraps[wraps.length - 1] : null)
+          let tries = 0
+          window.clearInterval(bindTimer)
+          bindTimer = window.setInterval(() => {
+            tries += 1
+            const list = voiceWraps()
+            if (boundAudio || !list.length || tries > 10) {
+              if (boundAudio || tries > 10) window.clearInterval(bindTimer)
+              return
+            }
+            bindVoiceTo(list[list.length - 1])
+          }, 800)
         } else {
           bindVoice(text)
           // 播放器通常比文字晚一点渲染，稍后重试几次
@@ -1108,16 +1142,24 @@ window.__ModuleLoader__.load({
           if (reply) {
             reply.dataset.on = '1'
             if (replyText) {
-              replyText.textContent = '思考中。。。'
+              replyText.textContent = '思考中'
               replyText.style.display = ''
             }
           }
           bubble.dataset.on = '0'
+          thinkingSince = Date.now()
           syncVoiceButton()
+        }
+        if (replyThinking && reply.dataset.on === '1' && now - thinkingSince > 4000) {
+          reply.dataset.on = '0'
         }
         if (!sessionBusy && replyThinking) {
           replyThinking = false
           reply.dataset.on = '0'
+        }
+        if (!sessionBusy && serverReply && Number(serverReply.ts) > handledReplyTs && (serverReply.text || serverReply.voice)) {
+          handledReplyTs = Number(serverReply.ts)
+          if (typeof replyHandler === 'function') replyHandler(serverReply.text || '', handledReplyTs, false, !!serverReply.voice)
         }
         // 忙碌只认会话状态；界面上的 tok/s 仅用于显示数值
         sessionBusy = serverBusy
