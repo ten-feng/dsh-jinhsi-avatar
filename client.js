@@ -48,6 +48,7 @@ window.__ModuleLoader__.load({
     let boundWrap = null
     let boundAudio = null
     let replyHandler = null
+    let wasBusy = false
     let lastPollAt = 0
 
     async function pollAvatarState(force) {
@@ -60,9 +61,13 @@ window.__ModuleLoader__.load({
         if (typeof data.cny === 'number') balanceCny = data.cny
         if (typeof data.todayCny === 'number') todayCny = data.todayCny
         if (typeof data.busy === 'boolean') serverBusy = data.busy
+        if (serverBusy && !wasBusy && typeof replyHandler === 'function') {
+          replyHandler('思考中。。。', Date.now(), true)
+        }
+        wasBusy = serverBusy
         const rep = data.reply
         if (rep && rep.text && Number(rep.ts) !== replyTs) {
-          if (typeof replyHandler === 'function') replyHandler(rep.text, Number(rep.ts) || Date.now())
+          if (typeof replyHandler === 'function') replyHandler(rep.text, Number(rep.ts) || Date.now(), false)
         }
       } catch (error) {
       }
@@ -415,9 +420,10 @@ window.__ModuleLoader__.load({
 .dsha-reply[data-on="1"]{opacity:1;transform:translate(-50%,0);pointer-events:auto}
 .dsha-reply-text{overflow:auto;max-height:128px;white-space:pre-wrap;word-break:break-word;padding-right:2px}
 .dsha-reply-row{display:flex;align-items:center;gap:8px}
-.dsha-voice{border:0;border-radius:9px;padding:3px 9px;background:#eef2ff;color:#3d4bd8;font-size:12px;cursor:pointer;display:none;align-items:center;gap:5px}
+.dsha-voice{border:0;border-radius:8px;padding:5px 10px;background:#95ec69;color:#14421a;font-size:12px;font-weight:600;cursor:pointer;display:none;align-items:center;gap:6px;max-width:100%}
+.dsha-voice:hover{filter:brightness(.97)}
 .dsha-voice[data-on="1"]{display:inline-flex}
-.dsha-voice[data-playing="1"]{background:#dbe4ff}
+.dsha-voice[data-playing="1"]{background:#7fd94f}
 .dsha-voice:active{transform:scale(.96)}
 .dsha-bubble[data-on="1"]{opacity:1;transform:translate(-50%,0)}
 .dsha-bubble::after{content:"";position:absolute;left:50%;top:100%;margin-left:-6px;border:6px solid transparent;border-top-color:rgba(255,255,255,.97)}
@@ -659,7 +665,8 @@ window.__ModuleLoader__.load({
           if (t.indexOf(snippet) !== -1) return last
           node = node.parentElement
         }
-        return null
+        // 文字对不上（markdown/围栏被剥离等）时退一步：用页面里最后一个播放器
+        return last
       }
 
       function syncVoiceButton() {
@@ -674,7 +681,9 @@ window.__ModuleLoader__.load({
         voiceBtn.dataset.on = '1'
         const playing = !audio.paused && !audio.ended
         voiceBtn.dataset.playing = playing ? '1' : '0'
-        voiceBtn.textContent = playing ? '⏸ 暂停语音' : '🔊 播放语音'
+        const secs = Number.isFinite(audio.duration) && audio.duration > 0 ? Math.max(1, Math.round(audio.duration)) + '″' : ''
+        const bars = playing ? '❙❙' : '🎙'
+        voiceBtn.textContent = bars + ' ' + (secs || '语音')
       }
 
       function bindVoice(text) {
@@ -696,8 +705,13 @@ window.__ModuleLoader__.load({
         syncVoiceButton()
       }
 
-      function showReply(text, ts) {
+      function stripVoiceFence(text) {
+        return String(text || '').replace(/```dsh-voice[\s\S]*?```/g, '').trim()
+      }
+
+      function showReply(text, ts, thinking) {
         if (!reply || !replyText) return
+        text = stripVoiceFence(text) || '思考中。。。'
         // 新回复：先停掉旧语音
         if (boundAudio) {
           try { boundAudio.pause() } catch (error) { /* ignore */ }
@@ -708,7 +722,13 @@ window.__ModuleLoader__.load({
         replyText.scrollTop = 0
         bubble.dataset.on = '0'
         reply.dataset.on = '1'
-        bindVoice(text)
+        if (thinking) {
+          boundWrap = null
+          boundAudio = null
+          syncVoiceButton()
+        } else {
+          bindVoice(text)
+        }
       }
 
       function closeReply() {
