@@ -63,8 +63,8 @@ window.__ModuleLoader__.load({
         if (typeof data.busy === 'boolean') serverBusy = data.busy
         wasBusy = serverBusy
         const rep = data.reply
-        if (!serverBusy && rep && rep.text && Number(rep.ts) !== replyTs) {
-          if (typeof replyHandler === 'function') replyHandler(rep.text, Number(rep.ts) || Date.now(), false)
+        if (!serverBusy && rep && Number(rep.ts) !== replyTs && (rep.text || rep.voice)) {
+          if (typeof replyHandler === 'function') replyHandler(rep.text || '', Number(rep.ts) || Date.now(), false, !!rep.voice)
         }
       } catch (error) {
       }
@@ -724,9 +724,10 @@ window.__ModuleLoader__.load({
         return String(text || '').replace(/```dsh-voice[\s\S]*?```/g, '').trim()
       }
 
-      function showReply(text, ts, thinking) {
+      function showReply(text, ts, thinking, voiceOnly) {
         if (!reply || !replyText) return
-        text = stripVoiceFence(text) || '思考中。。。'
+        text = stripVoiceFence(text)
+        if (!text && !voiceOnly) text = '思考中。。。'
         replyThinking = !!thinking
         // 新回复：先停掉旧语音
         if (boundAudio) {
@@ -736,6 +737,7 @@ window.__ModuleLoader__.load({
         replyOpen = true
         replyText.textContent = text
         replyText.scrollTop = 0
+        replyText.style.display = voiceOnly ? 'none' : ''
         bubble.dataset.on = '0'
         reply.dataset.on = '1'
         if (thinking) {
