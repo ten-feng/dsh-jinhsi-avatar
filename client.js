@@ -61,12 +61,9 @@ window.__ModuleLoader__.load({
         if (typeof data.cny === 'number') balanceCny = data.cny
         if (typeof data.todayCny === 'number') todayCny = data.todayCny
         if (typeof data.busy === 'boolean') serverBusy = data.busy
-        if (serverBusy && !wasBusy && typeof replyHandler === 'function') {
-          replyHandler('思考中。。。', Date.now(), true)
-        }
         wasBusy = serverBusy
         const rep = data.reply
-        if (rep && rep.text && Number(rep.ts) !== replyTs) {
+        if (!serverBusy && rep && rep.text && Number(rep.ts) !== replyTs) {
           if (typeof replyHandler === 'function') replyHandler(rep.text, Number(rep.ts) || Date.now(), false)
         }
       } catch (error) {
@@ -420,9 +417,9 @@ window.__ModuleLoader__.load({
 .dsha-reply[data-on="1"]{opacity:1;transform:translate(-50%,0);pointer-events:auto}
 .dsha-reply-text{overflow:auto;max-height:128px;white-space:pre-wrap;word-break:break-word;padding-right:2px}
 .dsha-reply-row{display:flex;align-items:center;gap:8px}
-.dsha-voice{display:none;align-self:flex-start}
+.dsha-reply .dsha-voice{display:none !important;align-self:flex-start}
 
-.dsha-voice[data-on="1"]{display:inline-flex !important}
+.dsha-reply .dsha-voice[data-on="1"]{display:inline-flex !important}
 
 .dsha-voice:active{transform:scale(.96)}
 .dsha-bubble[data-on="1"]{opacity:1;transform:translate(-50%,0)}
@@ -643,6 +640,7 @@ window.__ModuleLoader__.load({
 
 
       let knownPlayers = new Set()
+      let replyThinking = false
       let bindTimer = 0
 
       function voiceWraps() {
@@ -682,7 +680,7 @@ window.__ModuleLoader__.load({
       function syncVoiceButton() {
         const wrap = boundWrap
         const audio = boundAudio
-        if (!replyOpen || !wrap || !audio || !wrap.isConnected) {
+        if (!replyOpen || replyThinking || !wrap || !audio || !wrap.isConnected) {
           voiceBtn.dataset.on = '0'
           voiceBtn.dataset.playing = '0'
           voiceBtn.classList.remove('is-playing')
@@ -729,11 +727,12 @@ window.__ModuleLoader__.load({
       function showReply(text, ts, thinking) {
         if (!reply || !replyText) return
         text = stripVoiceFence(text) || '思考中。。。'
+        replyThinking = !!thinking
         // 新回复：先停掉旧语音
         if (boundAudio) {
           try { boundAudio.pause() } catch (error) { /* ignore */ }
         }
-        replyTs = ts || Date.now()
+        if (!thinking) replyTs = ts || Date.now()
         replyOpen = true
         replyText.textContent = text
         replyText.scrollTop = 0
@@ -741,7 +740,7 @@ window.__ModuleLoader__.load({
         reply.dataset.on = '1'
         if (thinking) {
           window.clearInterval(bindTimer)
-          knownPlayers = new Set(voiceWraps())
+          if (!replyThinking) knownPlayers = new Set(voiceWraps())
           boundWrap = null
           boundAudio = null
           replyText.style.display = ''
@@ -1094,6 +1093,30 @@ window.__ModuleLoader__.load({
         lastTs = ts
         const now = Date.now()
 
+        // 会话进行中：气泡固定为「思考中。。。」，且不显示语音图标
+        if (sessionBusy && !replyThinking) {
+          replyThinking = true
+          window.clearInterval(bindTimer)
+          knownPlayers = new Set(voiceWraps())
+          if (boundAudio) {
+            try { boundAudio.pause() } catch (error) { /* ignore */ }
+          }
+          boundWrap = null
+          boundAudio = null
+          if (reply) {
+            reply.dataset.on = '1'
+            if (replyText) {
+              replyText.textContent = '思考中。。。'
+              replyText.style.display = ''
+            }
+          }
+          bubble.dataset.on = '0'
+          syncVoiceButton()
+        }
+        if (!sessionBusy && replyThinking) {
+          replyThinking = false
+          reply.dataset.on = '0'
+        }
         // 忙碌只认会话状态；界面上的 tok/s 仅用于显示数值
         sessionBusy = serverBusy
 
