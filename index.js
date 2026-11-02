@@ -103,26 +103,37 @@ async function readAccountBalance(ctx) {
 }
 
 
-/** 从 assistant/message 的 message 里抽出纯文本 */
+/** 从 assistant/message 里抽出「最后一段正文」：只取最后一次工具调用之后的文本块 */
 function textOf(message) {
   if (!message) return ''
-  const parts = []
-  const push = (v) => {
-    if (typeof v === 'string' && v.trim()) parts.push(v.trim())
-  }
   if (typeof message === 'string') return message
-  if (typeof message.text === 'string') push(message.text)
-  if (Array.isArray(message.content)) {
-    for (const block of message.content) {
-      if (!block) continue
-      if (typeof block === 'string') push(block)
-      else if (block.type === 'text') push(block.text)
-      else if (typeof block.text === 'string') push(block.text)
-    }
-  } else if (typeof message.content === 'string') {
-    push(message.content)
+  const content = message.content
+  if (typeof message.text === 'string' && !Array.isArray(content)) return message.text.trim()
+  if (typeof content === 'string') return content.trim()
+  if (!Array.isArray(content)) return ''
+  const isTool = (b) => {
+    const type = String(b && b.type ? b.type : '').toLowerCase()
+    return type.indexOf('tool') !== -1 || type === 'function_call'
+  }
+  let lastTool = -1
+  content.forEach((block, index) => { if (isTool(block)) lastTool = index })
+  const tail = content.slice(lastTool + 1)
+  const parts = []
+  for (const block of tail) {
+    if (!block) continue
+    if (typeof block === 'string') { if (block.trim()) parts.push(block.trim()); continue }
+    const type = String(block.type || '').toLowerCase()
+    if (type === 'text' && typeof block.text === 'string' && block.text.trim()) parts.push(block.text.trim())
   }
   return parts.join('\n').trim()
+}
+
+/** 去掉 ```dsh-voice 围栏，并判断这条回复是否带语音 */
+function splitVoice(raw) {
+  const text = String(raw || '')
+  const voice = text.indexOf('```dsh-voice') !== -1
+  const cleaned = text.replace(/```dsh-voice[\s\S]*?```/g, '').trim()
+  return { text: cleaned.slice(0, 1200), voice }
 }
 
 export function apply(ctx) {
@@ -139,7 +150,7 @@ export function apply(ctx) {
 
   // ---- 最新一条回复（供桌宠气泡镜像，只读，不改动原会话） ----
   let lastReply = { text: '', ts: 0 }
-  let pendingReply = ''
+  let pendingReply = null
 
   // ---- 今日用量账本（本地按回合累计） ----
   let ledger = { date: todayKey(), cny: 0, tokens: 0, byModel: {} }
@@ -194,8 +205,8 @@ export function apply(ctx) {
     if (event.type === 'turn/end') {
       running.delete(id)
       if (pendingReply) {
-        lastReply = { text: pendingReply, ts: Date.now() }
-        pendingReply = ''
+        lastReply = { text: pendingReply.text, ts: Date.now(), voice: !!pendingReply.voice }
+        pendingReply = null
       }
       void flushLedger(true)
       return
@@ -206,9 +217,9 @@ export function apply(ctx) {
     // 只把「本回合最后一条助手消息」暂存起来，回合结束才发布，
     // 这样气泡里不会出现中间步骤的思考/工具过程
     const message = event.data?.message
-    const text = textOf(message)
-    if (text) {
-      pendingReply = text.slice(0, 600)
+    const raw = textOf(message)
+    if (raw) {
+      pendingReply = splitVoice(raw)
     }
     const usage = event.data?.usage
     if (!usage || typeof usage !== 'object') return
